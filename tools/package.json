@@ -1,0 +1,12 @@
+{
+  "name": "escape-the-manager-build",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node protect.mjs ../source/escape-the-manager.source.html ../public"
+  },
+  "dependencies": {
+    "javascript-obfuscator": "4.1.1",
+    "terser": "5.31.6"
+  }
+}
