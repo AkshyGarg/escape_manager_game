@@ -19,6 +19,7 @@
   --outline:#2a1f3d; --accent:#e8364a; --accent-ink:#ffffff; --gold:#ffcd3c; --teal:#13b5a3;
   --chip:rgba(255,250,242,.92); --scrim:rgba(42,31,61,.38); --shadow:0 12px 32px rgba(42,31,61,.26);
   --bubble-bg:#ffffff; --bubble-ink:#2a1f3d; --pop-ink:#ffffff; --pop-outline:#2a1f3d;
+  --pill-bg:rgba(28,20,44,.9); --pill-line:rgba(255,255,255,.16); --pill-ink:#ffffff; --pill-num:#ffcd3c;
   color-scheme:light;
   box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
 }
@@ -206,6 +207,18 @@ button:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
 .newbest{display:inline-block;background:var(--gold);color:#2a1f3d;font-weight:900;border:3px solid #2a1f3d;border-radius:12px;padding:4px 12px;margin-bottom:8px;animation:pop .6s cubic-bezier(.3,1.8,.5,1)}
 .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:6px}
 .retry-hint{margin-top:10px;font-size:13px;font-weight:800;color:var(--muted)}
+.live-pill{position:fixed;right:calc(env(safe-area-inset-right,0px) + 14px);bottom:calc(env(safe-area-inset-bottom,0px) + 14px);z-index:25;display:flex;align-items:center;gap:8px;
+  padding:7px 15px 7px 12px;border-radius:999px;background:var(--pill-bg);border:2px solid var(--pill-line);color:var(--pill-ink);font-weight:800;font-size:14px;
+  box-shadow:0 6px 18px rgba(0,0,0,.28);pointer-events:none;white-space:nowrap;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.live-pill b{font-family:"Lilita One","Arial Black",Impact,sans-serif;font-weight:400;font-size:18px;line-height:1;color:var(--pill-num);letter-spacing:.5px}
+.live-pill.bump b{animation:pop .4s cubic-bezier(.3,1.8,.5,1)}
+.lp-dot{width:9px;height:9px;border-radius:50%;background:#ff4757;flex:none;animation:lpPulse 1.6s infinite}
+@keyframes lpPulse{0%{box-shadow:0 0 0 0 rgba(255,71,87,.7)}70%{box-shadow:0 0 0 7px rgba(255,71,87,0)}100%{box-shadow:0 0 0 0 rgba(255,71,87,0)}}
+@media (max-width:560px){
+  .live-pill{bottom:calc(env(safe-area-inset-bottom,0px) + 78px);right:calc(env(safe-area-inset-right,0px) + 10px);font-size:12.5px;padding:5px 12px 5px 10px}
+  .live-pill b{font-size:15px}
+  body:not(.in-run) .live-pill{display:none}
+}
 #toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);transform:translate(-50%,20px);background:var(--ink);color:var(--panel);font-weight:900;
   padding:10px 16px;border-radius:14px;opacity:0;transition:.25s;z-index:40;pointer-events:none;max-width:90vw;text-align:center}
 #toast.show{opacity:1;transform:translate(-50%,0)}
@@ -330,6 +343,7 @@ body.glitch #game{animation:glitch .5s steps(5)}
   </div>
 </section>
 
+<div id="livePill" class="live-pill hidden" aria-live="polite"><span class="lp-dot"></span><b id="lpNum">0</b><span id="lpLabel">employees playing</span></div>
 <div id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -1407,7 +1421,7 @@ function resetGame(){
   for(const k in hud) delete hud[k];
 }
 function showScreen(id){for(const s of ['start','pause','over']) $('#'+s).classList.toggle('hidden',s!==id);}
-function setHud(on){$('#hud').classList.toggle('off',!on);}
+function setHud(on){$('#hud').classList.toggle('off',!on);document.body.classList.toggle('in-run',on);}
 let hintT=null;
 function startGame(){
   if(S.mode==='loading') return;
@@ -1511,10 +1525,14 @@ const Live=(function(){
   }
   function render(){
     const boxes=[$('#liveStart'),$('#liveHud'),$('#liveOver')];
-    if(!provider){boxes.forEach(b=>b.classList.add('hidden'));return;}
+    if(!provider){boxes.forEach(b=>b.classList.add('hidden'));$('#livePill').classList.add('hidden');return;}
     const rank=p=>(p.state==='playing'?0:p.state==='paused'?1:p.state==='over'?2:3);
     const all=peers.slice().sort((a,b)=>rank(a)-rank(b)||b.dist-a.dist||(b.me?1:0)-(a.me?1:0));
     const online=all.length,running=all.filter(p=>p.state==='playing'||p.state==='paused').length;
+    const pill=$('#livePill'),showN=running>0?running:online;
+    const lbl=running>0?(running===1?'employee playing':'employees playing'):(online===1?'employee online':'employees online');
+    pill.classList.remove('hidden');$('#lpLabel').textContent=lbl;
+    if($('#lpNum').textContent!==fmt(showN)){$('#lpNum').textContent=fmt(showN);pill.classList.remove('bump');void pill.offsetWidth;pill.classList.add('bump');}
     const sum=online<=1?'Just you online right now':online+' online, '+running+' running now';
     boxes.forEach(b=>{b.classList.remove('hidden');b.querySelector('.live-sum').textContent=sum;});
     if(!autoOpened){autoOpened=true;if(wideLayout) $('#liveStart').open=true;}
