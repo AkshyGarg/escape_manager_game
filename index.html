@@ -9,7 +9,6 @@
 <meta property="og:title" content="Escape the Manager">
 <meta property="og:description" content="“This should have been done yesterday!” Outrun your boss in this office endless runner.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://akshygarg.github.io/escape_manager_game/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -349,19 +348,6 @@ body.glitch #game{animation:glitch .5s steps(5)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-/* =====================================================
-   LIVE PLAYER COUNT ON STATIC HOSTS (GitHub Pages, Netlify, etc.)
-   Works with no setup: players find each other through a free public
-   MQTT broker (publicBroker: true). For a sturdier count you control,
-   paste your free Supabase project's "Project URL" and "anon public" key
-   (Supabase dashboard, Project Settings, API); it is used first when set.
-   The anon key is meant to be public; no database table is needed.
-   ===================================================== */
-window.PRESENCE_CONFIG = window.PRESENCE_CONFIG || {
-  supabaseUrl: '',
-  supabaseAnonKey: '',
-  publicBroker: true
-};
 (function(){
 'use strict';
 const $=s=>document.querySelector(s);
@@ -1470,40 +1456,7 @@ async function share(){
 /* ---------- live players (who's online / running right now) ---------- */
 const Live=(function(){
   const STATES=['menu','playing','paused','over'];
-  let provider=null,room=null,myId='',peers=[],lastSent='',lastApi=0,pending=null,autoOpened=false,localSend=null,localRebuild=null,localStarted=false,sbChannel=null,mqttSend=null,mqttRebuild=null;
-  // Fallback when there's no shared server (opened from disk, a plain local server, or no room):
-  // counts every open tab of the game on this device, so the pill always works.
-  function startLocal(){
-    provider='local';
-    if(localStarted){localRebuild();return;}
-    localStarted=true;
-    const tabId='t'+Math.random().toString(36).slice(2)+Date.now().toString(36);
-    const seen=new Map();
-    let bc=null;try{bc=new BroadcastChannel('etm-presence');}catch(e){bc=null;}
-    localSend=leave=>{
-      const msg={id:tabId,leave:!!leave,p:snapshot()};
-      if(bc){try{bc.postMessage(msg);}catch(e){}}
-      else{try{localStorage.setItem('etm-presence-msg',JSON.stringify(msg));}catch(e){}}
-    };
-    localRebuild=()=>{
-      if(provider!=='local') return;
-      const now=Date.now();
-      for(const [k,v] of seen) if(now-v.at>7000) seen.delete(k);
-      peers=[...seen].map(([k,v])=>Object.assign({},v.p,{key:k,me:false}));
-      peers.push(Object.assign(clean(snapshot()),{key:tabId,me:true}));
-      render();
-    };
-    const onMsg=m=>{
-      if(!m||typeof m.id!=='string'||m.id===tabId) return;
-      if(m.leave) seen.delete(m.id); else seen.set(m.id,{p:clean(m.p),at:Date.now()});
-      localRebuild();
-    };
-    if(bc) bc.onmessage=e=>onMsg(e.data);
-    else addEventListener('storage',e=>{if(e.key==='etm-presence-msg'&&e.newValue){try{onMsg(JSON.parse(e.newValue));}catch(_){}}});
-    setInterval(()=>{if(provider==='local'){localSend(false);localRebuild();}},2000);
-    addEventListener('pagehide',()=>localSend(true));
-    localSend(false);localRebuild();
-  }
+  let provider=null,room=null,myId='',peers=[],lastSent='',lastApi=0,pending=null,autoOpened=false;
   const me={nick:'',state:'menu',dist:0,score:0,emp:'man',boss:'man'};
   const strip=s=>String(s==null?'':s).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g,'').trim().slice(0,18);
   function clean(p){
@@ -1527,17 +1480,6 @@ const Live=(function(){
     const snap=snapshot(),s=JSON.stringify(snap);
     if(s===lastSent&&!force) return;
     if(provider==='room'){lastSent=s;room.presence(snap).catch(()=>{});return;}
-    if(provider==='local'){lastSent=s;localSend(false);localRebuild();return;}
-    if(provider==='supabase'){
-      const now=Date.now();
-      if(!force&&now-lastApi<2000){if(!pending) pending=setTimeout(()=>{pending=null;push(true);},2000-(now-lastApi));return;}
-      lastSent=s;lastApi=now;sbChannel.track(snap).catch(()=>{});return;
-    }
-    if(provider==='mqtt'){
-      const now=Date.now();
-      if(!force&&now-lastApi<2000){if(!pending) pending=setTimeout(()=>{pending=null;push(true);},2000-(now-lastApi));return;}
-      lastSent=s;lastApi=now;mqttSend();mqttRebuild();return;
-    }
     const now=Date.now(),gapMs=me.state==='playing'?4000:1500;
     if(!force&&now-lastApi<gapMs){if(!pending) pending=setTimeout(()=>{pending=null;push(true);},gapMs-(now-lastApi));return;}
     lastSent=s;lastApi=now;
@@ -1546,128 +1488,23 @@ const Live=(function(){
   async function start(){
     if(window.claude&&typeof window.claude.use==='function'){
       try{room=await window.claude.use('room');}catch(e){room=null;}
-      if(!room) return startLocal();
+      if(!room) return;
       provider='room';
       room.onPeers(ch=>{
         peers=ch.peers.filter(p=>p.kind==='viewer').map(p=>Object.assign(clean(p.presence),{key:p.peer,me:p.sameTab}));
         render();
-      },()=>{provider=null;startLocal();});
+      },()=>{provider=null;render();});
       push(true);return;
     }
-    if(await startSupabase()) return;
-    if(!/^https?:$/.test(location.protocol)){startLocal();startMqtt();return;}
+    if(!/^https?:$/.test(location.protocol)) return;
     myId=store.get('etm-id','');
     if(!/^[A-Za-z0-9_-]{8,64}$/.test(myId)){myId=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('p'+Math.random().toString(36).slice(2)+Date.now().toString(36));store.set('etm-id',myId);}
     const j=await api(Object.assign({id:myId},snapshot()));
-    if(!j||!Array.isArray(j.players)){startLocal();startMqtt();return;}
+    if(!j||!Array.isArray(j.players)) return;
     provider='api';fromApi(j);lastApi=Date.now();lastSent=JSON.stringify(snapshot());
     setInterval(()=>push(true),10000);
     const bye=()=>{try{navigator.sendBeacon('/api/presence',new Blob([JSON.stringify({id:myId,leave:true})],{type:'application/json'}));}catch(e){}};
     addEventListener('pagehide',bye);
-  }
-  // Zero-setup shared count for static hosts (GitHub Pages): a free public MQTT broker.
-  // Shows the device-only count first, then upgrades once a broker answers.
-  function startMqtt(){
-    const cfg=window.PRESENCE_CONFIG||{};
-    if(cfg.publicBroker===false) return;
-    const brokers=Array.isArray(cfg.brokers)&&cfg.brokers.length?cfg.brokers:['wss://broker.hivemq.com:8884/mqtt','wss://broker.emqx.io:8084/mqtt'];
-    let h=2166136261;const src=location.host+location.pathname.replace(/index\.html$/,'');
-    for(let i=0;i<src.length;i++){h^=src.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}
-    const ns='escape-the-manager-v1/'+h.toString(36);
-    const tabId='m'+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
-    const seen=new Map();
-    const rebuild=()=>{
-      if(provider!=='mqtt') return;
-      const now=Date.now();
-      for(const [k,v] of seen) if(now-v.at>16000) seen.delete(k);
-      peers=[...seen].map(([k,v])=>Object.assign({},v.p,{key:k,me:false}));
-      peers.push(Object.assign(clean(snapshot()),{key:tabId,me:true}));
-      render();
-    };
-    let started=false;
-    const tryBroker=i=>{
-      if(i>=brokers.length) return;
-      let client,ok=false;
-      try{
-        client=window.mqtt.connect(brokers[i],{clientId:tabId,clean:true,connectTimeout:6000,reconnectPeriod:4000,keepalive:30,
-          will:{topic:ns+'/p/'+tabId,payload:'{"leave":true}',qos:0,retain:false}});
-      }catch(e){return tryBroker(i+1);}
-      const timer=setTimeout(()=>{if(!ok){try{client.end(true);}catch(e){}tryBroker(i+1);}},8000);
-      const send=()=>{try{client.publish(ns+'/p/'+tabId,JSON.stringify(snapshot()),{qos:0});}catch(e){}};
-      client.on('connect',()=>{
-        client.subscribe([ns+'/p/+',ns+'/hello'],{qos:0});
-        if(ok){send();return;}
-        ok=true;clearTimeout(timer);
-        provider='mqtt';mqttSend=send;mqttRebuild=rebuild;lastApi=Date.now();lastSent=JSON.stringify(snapshot());
-        try{client.publish(ns+'/hello',tabId,{qos:0});}catch(e){}
-        send();rebuild();
-        if(!started){
-          started=true;
-          setInterval(()=>{if(provider==='mqtt'){send();rebuild();}},5000);
-          addEventListener('pagehide',()=>{try{client.publish(ns+'/p/'+tabId,'{"leave":true}',{qos:0});client.end();}catch(e){}});
-        }
-      });
-      client.on('message',(topic,buf)=>{
-        if(!buf||buf.length>1024) return;
-        if(topic===ns+'/hello'){if(String(buf)!==tabId) setTimeout(send,Math.random()*800);return;}
-        const id=topic.slice(topic.lastIndexOf('/')+1);
-        if(id===tabId||!/^[a-z0-9]{6,40}$/.test(id)) return;
-        let m;try{m=JSON.parse(String(buf));}catch(e){return;}
-        if(!m||typeof m!=='object') return;
-        if(m.leave) seen.delete(id);
-        else if(seen.has(id)||seen.size<200) seen.set(id,{p:clean(m),at:Date.now()});
-        rebuild();
-      });
-      client.on('error',()=>{});
-    };
-    const go=()=>tryBroker(0);
-    if(window.mqtt&&window.mqtt.connect) return go();
-    const s=document.createElement('script');
-    s.src='https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js';
-    s.async=true;s.onload=()=>{if(window.mqtt&&window.mqtt.connect) go();};
-    document.head.appendChild(s);
-  }
-  // Supabase Realtime presence: shared count for every visitor, no server of your own.
-  function startSupabase(){
-    return new Promise(resolve=>{
-      const cfg=window.PRESENCE_CONFIG||{};
-      const url=String(cfg.supabaseUrl||'').trim().replace(/\/+$/,''),key=String(cfg.supabaseAnonKey||'').trim();
-      if(!/^https:\/\/[^\s]+$/.test(url)||key.length<20) return resolve(false);
-      let done=false;
-      const finish=ok=>{if(!done){done=true;resolve(ok);}};
-      const go=()=>{
-        let ch=null;
-        try{
-          const client=window.supabase.createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false},realtime:{params:{eventsPerSecond:5}}});
-          const tabId='s'+Math.random().toString(36).slice(2)+Date.now().toString(36);
-          ch=client.channel('escape-the-manager-lobby',{config:{presence:{key:tabId}}});
-          ch.on('presence',{event:'sync'},()=>{
-            if(provider!=='supabase') return;
-            const st=ch.presenceState();
-            peers=Object.keys(st).map(k=>{const arr=st[k]||[];return Object.assign(clean(arr[arr.length-1]),{key:k,me:k===tabId});});
-            if(!peers.some(p=>p.me)) peers.push(Object.assign(clean(snapshot()),{key:tabId,me:true}));
-            render();
-          });
-          ch.subscribe(status=>{
-            if(status==='SUBSCRIBED'){
-              provider='supabase';sbChannel=ch;lastApi=Date.now();lastSent=JSON.stringify(snapshot());
-              ch.track(snapshot()).catch(()=>{});
-              peers=[Object.assign(clean(snapshot()),{key:tabId,me:true})];render();
-              finish(true);
-            }else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){
-              if(!done) finish(false);
-              else if(provider==='supabase'){provider=null;startLocal();}
-            }
-          });
-          setTimeout(()=>finish(false),9000);
-        }catch(e){finish(false);}
-      };
-      if(window.supabase&&window.supabase.createClient) return go();
-      const s=document.createElement('script');
-      s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
-      s.async=true;s.onload=()=>(window.supabase&&window.supabase.createClient)?go():finish(false);s.onerror=()=>finish(false);
-      document.head.appendChild(s);
-    });
   }
   function statusOf(p){
     if(p.state==='playing') return '🏃 '+fmt(p.dist)+' m';
